@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Prediction</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</head>
+
+<body>
+
+    <nav class="topbar">
+        <div>Stock Prediction</div>
+        <form method="POST" action="/get_stock">
+            <div class="search-row">
+                <input class="search-input" name="symbol" placeholder="Symbol..." value="{{ symbol }}" />
+                <button class="btn-analyze" type="submit">ANALYZE</button>
+            </div>
+        </form>
+        <div>
+            <span class="signal-badge {{signal}}">{{signal}}</span>
+            <span id="clock">time</span>
+        </div>
+    </nav>
+
+    <div class="body">
+        <aside class="sidebar">
+            <div class="stock-header">
+                <div class="stock-name" style="text-transform: uppercase;">{{symbol}}</div>
+                <div class="stock-sub">{{ symbol }} · {{ currency }}</div>
+                {% set cur = prices[-2] %}
+                {% set prev = prices[-3] %}
+                {% set chg = cur - prev %}
+                {% set chg_pct = (chg/prev*100) %}
+                <div class="price-big">{{ currency }}{{ cur }}</div>
+                <div class="price-change {{ 'up' if chg >= 0 else 'down' }}">
+                    {{ '▲' if chg >= 0 else '▼' }}
+                    {{ '%+.2f'|format(chg) }} ({{ '%+.2f'|format(chg_pct) }}%)
+                </div>
+            </div>
+
+            <div>
+                <div class="section-label">Next Day Prediction</div>
+                <div class="prediction-box">
+                    <div>
+                        <div class="pred-lbl">Predicted Close</div>
+                        <div class="pred-value">{{ currency }}{{ prediction }}</div>
+                    </div>
+                </div>
+            </div>
+
+
+            <div>
+                <div class="section-label">RSI · 14</div>
+                <div class="rsi-wrap">
+                    {% set latest_rsi = rsi[-2] or 50 %}
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <span style="font-size:11px;color:var(--muted)">
+                            {{ 'Oversold' if latest_rsi < 30 else ('Overbought' if latest_rsi> 70 else 'Neutral') }}
+                        </span>
+                        <span style="font-size:16px;font-weight:700;">{{ latest_rsi }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="section-label">Model Evaluation</div>
+                <div class="metric-grid">
+                    <div class="metric-card">
+                        <div class="metric-val">{{evaluation.directional_accuracy}}%</div>
+                        <div class="metric-lbl">Dir. Accuracy</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val">{{evaluation.mape}}%</div>
+                        <div class="metric-lbl">MAPE</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val">{{ currency }}{{evaluation.rmse}}</div>
+                        <div class="metric-lbl">RMSE</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val">{{evaluation.tolerance_accuracy}}%</div>
+                        <div class="metric-lbl">Tol. Accuracy</div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="section-label">Details</div>
+                <div class="eval-list">
+                    <div class="eval-row">
+                        <span class="eval-key">RMSE %</span>
+                        <span class="eval-val">{{ evaluation.rmse_percent }}%</span>
+                    </div>
+                    <div class="eval-row">
+                        <span class="eval-key">Test Days</span>
+                        <span class="eval-val">{{ evaluation.total_test_days }}</span>
+                    </div>
+                    <div class="eval-row">
+                        <span class="eval-key">MA5</span>
+                        <span class="eval-val">{{ currency }}{{ ma5[-2] }}</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        <div class="main">
+            <div class="chart-area">
+                <div class="chart-header">
+                    <div style="font-size:13px;font-weight:500">Price Chart · 6 Months</div>
+                    <div class="chart-legend">
+                        <span class="leg"><span class="leg-dot" style="background:#00d4ff"></span>Actual</span>
+                        <span class="leg"><span class="leg-dot"
+                                style="background:#00e676;border-top:1px dashed #00e676"></span>Predicted</span>
+                        <span class="leg"><span class="leg-dot" style="background:#ffa726"></span>MA5</span>
+                    </div>
+                </div>
+                <div style="position:relative; height:350px; width:100%;">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bottom-strip">
+                <div class="strip-card">
+                    <div class="strip-val up">{{ currency }}{{ prediction }}</div>
+                    <div class="strip-lbl">Next Day</div>
+                </div>
+                <div class="strip-card">
+                    <div class="strip-val">{{ currency }}{{ prices[:-1]|max }}</div>
+                    <div class="strip-lbl">Period High</div>
+                </div>
+                <div class="strip-card">
+                    <div class="strip-val">{{ currency }}{{ prices[:-1]|min }}</div>
+                    <div class="strip-lbl">Period Low</div>
+                </div>
+                <div class="strip-card">
+                    <div
+                        class="strip-val {{ 'c-green' if signal=='BUY' else ('c-red' if signal=='SELL' else 'c-amber') }}">
+                        {{ signal }}</div>
+                    <div class="strip-lbl">Signal</div>
+                </div>
+            </div>
+
+            <div class="table-area">
+                <div style="font-size:13px;font-weight:500;margin:16px 0 10px">Recent Data</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Close</th>
+                                <th>MA5</th>
+                                <th>RSI</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in table_data[-15:]|reverse %}
+                            <tr>
+                                <td>{{ row.Date }}</td>
+                                <td>{{ currency }}{{ row.Close }}</td>
+                                <td>{{ currency }}{{ row.MA5 }}</td>
+                                <td class="{{ 'c-green' if row.RSI < 30 else ('c-red' if row.RSI > 70 else '') }}">
+                                    {{ row.RSI }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const currencySymbol = "{{ currency }}";
+        // Chart
+        const dates = {{ dates| tojson }};
+        const prices = {{ prices| tojson }};
+        const predicted = {{ predicted_prices| tojson }};
+        const ma5 = {{ ma5| tojson }};
+
+        // Clock
+        setInterval(() => {
+            document.getElementById('clock').textContent =
+                new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        }, 1000)
+
+
+        new Chart(document.getElementById('priceChart'), {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [
+                    {
+                        label: 'Actual', data: prices, borderColor: '#00d4ff',
+                        borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false
+                    },
+                    {
+                        label: 'Predicted', data: predicted, borderColor: '#00e676',
+                        borderWidth: 1.5, borderDash: [5, 3], pointRadius: 0, tension: 0.3, fill: false
+                    },
+                    {
+                        label: 'MA5', data: ma5, borderColor: '#ffa726',
+                        borderWidth: 1, borderDash: [2, 2], pointRadius: 0, tension: 0.3, fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#111827', borderColor: '#1e2d45', borderWidth: 1,
+                        titleColor: '#5a7090', bodyColor: '#e8edf5',
+                        titleFont: { family: 'DM Mono', size: 11 },
+                        bodyFont: { family: 'DM Mono', size: 12 }, padding: 10,
+                        callbacks: { label: c => `  ${c.dataset.label}: ${currencySymbol}${c.parsed.y?.toFixed(2) ?? '—'}` }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#1e2d4540' },
+                        ticks: { color: '#5a7090', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8 },
+                        border: { color: '#1e2d45' }
+                    },
+                    y: {
+                        grid: { color: '#1e2d4540' },
+                        ticks: {
+                            color: '#5a7090', font: { family: 'DM Mono', size: 10 },
+                            callback: v => currencySymbol + v.toLocaleString('en-IN')
+                        },
+                        border: { color: '#1e2d45' }
+                    }
+                }
+            }
+        })    
+    </script>
+</body>
+
+</html>
